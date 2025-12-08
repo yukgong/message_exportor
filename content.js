@@ -1,0 +1,517 @@
+// content.js
+
+let isProcessing = false;
+
+// ============================================================
+// 1. 버튼 주입
+// ============================================================
+function injectExportButtons() {
+    const dateDividers = document.querySelectorAll('div[role="separator"]');
+    dateDividers.forEach((divider) => {
+        const wrapper = divider.querySelector('.MuiDivider-wrapper');
+        if (!wrapper || wrapper.querySelector('.chat-export-group')) return;
+
+        const btnGroup = document.createElement('span');
+        btnGroup.className = 'chat-export-group';
+        btnGroup.style.marginLeft = '10px';
+        btnGroup.style.display = 'inline-flex';
+        btnGroup.style.gap = '5px';
+        btnGroup.style.zIndex = '9999';
+
+        btnGroup.appendChild(createButton('📝 텍스트', () => startScraping(divider, 'text')));
+        btnGroup.appendChild(createButton('📷 이미지', () => startScraping(divider, 'image')));
+
+        wrapper.appendChild(btnGroup);
+    });
+}
+
+function createButton(text, onClick) {
+    const btn = document.createElement('button');
+    btn.innerText = text;
+    btn.className = 'export-btn';
+    btn.onclick = (e) => { 
+        e.preventDefault();
+        e.stopPropagation(); 
+        onClick(); 
+    };
+    btn.style.cssText = `
+        cursor: pointer; border: 1px solid #ddd; background: #fff; 
+        border-radius: 4px; padding: 2px 6px; font-size: 12px;
+    `;
+    return btn;
+}
+
+// 고유 키 생성 (Top 제외, 내용 기반)
+function generateMessageKey(parsed) {
+    const sender = parsed.sender || "null"; 
+    const time = parsed.time || "";
+    const content = parsed.content || "";
+    const contentPreview = content.substring(0, 50);
+    const raw = `${time}__${sender}__${contentPreview}`;
+    return btoa(unescape(encodeURIComponent(raw))); 
+}
+
+
+// ============================================================
+// 2. 핵심 로직: 스크롤 & 수집
+// ============================================================
+
+async function startScraping(startDivider, mode) {
+    if (isProcessing) {
+        alert("작업 중입니다. 잠시만 기다려주세요.");
+        return;
+    }
+    isProcessing = true;
+
+    const dateSpan = startDivider.querySelector('[aria-label]');
+    const targetDateText = dateSpan
+        ? dateSpan.innerText.trim()
+        : extractDateFromText(startDivider.innerText);
+
+    showLoadingOverlay(`[${targetDateText}] 수집 중...\n화면을 건드리지 마세요.`);
+
+    const scroller = findScrollContainer(startDivider);
+    if (!scroller) {
+        alert("스크롤 영역을 찾을 수 없습니다.");
+        hideLoadingOverlay();
+        isProcessing = false;
+        return;
+    }
+
+    const startRowElement = startDivider.closest('div[style*="position: absolute"]');
+    if (!startRowElement) {
+        alert("시작 위치를 찾을 수 없습니다.");
+        hideLoadingOverlay();
+        isProcessing = false;
+        return;
+    }
+    const startRowTop = parseFloat(startRowElement.style.top);
+
+    const collectedData = new Map();
+    let reachedNextSeparator = false;
+
+    startDivider.scrollIntoView({ block: "start", behavior: "instant" });
+    await wait(800);
+
+    let lastScrollTop = -1;
+    let sameScrollCount = 0;
+
+    // ================= LOOP =================
+    while (true) {
+        const rows = Array.from(scroller.querySelectorAll('div'))
+            .filter(row => {
+                const s = window.getComputedStyle(row);
+                return s.position === 'absolute' && row.style.top;
+            })
+            .sort((a, b) => parseFloat(a.style.top) - parseFloat(b.style.top));
+
+        for (const row of rows) {
+            const rowTop = parseFloat(row.style.top) || 0;
+            
+            if (rowTop < startRowTop - 1) continue;
+
+            const separator = row.querySelector('div[role="separator"]');
+            if (separator) {
+                if (Math.abs(rowTop - startRowTop) > 5) {
+                    reachedNextSeparator = true;
+                    break; 
+                }
+            }
+
+            const parsed = parseMessageRow(row);
+            if (!parsed) continue;
+
+            // 중복 방지 (20px 기준)
+            const baseKey = generateMessageKey(parsed);
+            
+            if (collectedData.has(baseKey)) {
+                const existing = collectedData.get(baseKey);
+                const diff = Math.abs(existing.top - rowTop);
+                
+                if (diff < 20) { 
+                    continue; 
+                } else {
+                    const dupKey = `${baseKey}__dup_${rowTop.toFixed(0)}`;
+                    if (!collectedData.has(dupKey)) {
+                        const clone = row.cloneNode(true);
+                        copyComputedStyles(row, clone);
+                        collectedData.set(dupKey, { parsed, element: clone, top: rowTop });
+                    }
+                }
+            } else {
+                const clone = row.cloneNode(true);
+                copyComputedStyles(row, clone);
+                collectedData.set(baseKey, { parsed, element: clone, top: rowTop });
+            }
+        }
+
+        if (reachedNextSeparator) break;
+
+        const currentScrollTop = scroller.scrollTop;
+        if (Math.abs(currentScrollTop - lastScrollTop) < 2) {
+            sameScrollCount++;
+            if (sameScrollCount > 5) break; 
+        } else {
+            sameScrollCount = 0;
+        }
+        lastScrollTop = currentScrollTop;
+
+        scroller.scrollBy(0, 300);
+        await wait(500); 
+    }
+    // ================= LOOP END =================
+
+    let sortedItems = Array.from(collectedData.values())
+        .sort((a, b) => a.top - b.top);
+
+    if (sortedItems.length === 0) {
+        alert("수집된 메시지가 없습니다.");
+    } else if (mode === 'text') {
+        processTextExport(sortedItems, targetDateText);
+    } else {
+        await processImageExport(sortedItems, targetDateText);
+    }
+
+    hideLoadingOverlay();
+    isProcessing = false;
+    
+    startDivider.scrollIntoView({ block: "center" });
+}
+
+
+// ============================================================
+// 3. 파싱 로직
+// ============================================================
+
+function parseMessageRow(node) {
+    const hasContent = node.innerText.trim() ||
+        node.querySelector('img') ||
+        node.querySelector('div[role="button"]');
+    if (!hasContent) return null;
+
+    let sender = null; 
+
+    const myMsgContainer = node.querySelector('.flex_row-reverse');
+    
+    if (myMsgContainer) {
+        sender = "나";
+    } else {
+        const otherMsgContainer = node.querySelector('.flex_row');
+        if (otherMsgContainer) {
+            const nameNode = node.querySelector('[class*="MDSText--variant_chat-caption-M"]');
+            if (nameNode) {
+                sender = nameNode.innerText.trim();
+            } else {
+                sender = null; 
+            }
+        }
+    }
+
+    let time = "";
+    node.querySelectorAll('[class*="MDSText--variant_chat-small-text-R"]').forEach(t => {
+        const txt = t.innerText.trim();
+        if ((txt.includes('오전') || txt.includes('오후')) && txt.includes(':')) {
+            time = txt;
+        }
+    });
+
+    let contents = [];
+
+    node.querySelectorAll('img').forEach(img => {
+        if (img.classList.contains('MuiAvatar-img') || img.closest('.MuiAvatar-root')) return;
+        if (img.closest('.MuiChip-root') || img.closest('[role="button"]')) return;
+
+        const alt = img.getAttribute('alt') || '';
+        if (alt && !alt.startsWith('http')) {
+            contents.push(`(이모티콘: ${alt})`);
+        } else {
+            contents.push(`(사진)`);
+        }
+    });
+
+    node.querySelectorAll('div[role="button"]').forEach(fileBtn => {
+        if (fileBtn.closest('.MuiChip-root')) return;
+        const fileNameEl = fileBtn.querySelector('[class*="MDSText--variant_subtitle4-B"] span');
+        if (fileNameEl) {
+            const fileName = fileNameEl.innerText.trim();
+            if (fileName) contents.push(`(파일: ${fileName})`);
+        }
+    });
+
+    const textBox = node.querySelector('div[role="textbox"]');
+    if (textBox && textBox.innerText.trim()) {
+        contents.push(textBox.innerText.trim());
+    }
+
+    if (contents.length === 0) return null;
+
+    return { time, sender, content: contents.join('\n') };
+}
+
+
+// ============================================================
+// 4. 내보내기 (이미지 분할 저장 + 캐시 버스팅 적용)
+// ============================================================
+
+function processTextExport(items, dateText) {
+    let resultText = `=== [${dateText}] 대화 내용 ===\n\n`;
+
+    let lastSender = "알 수 없음"; 
+    
+    let processedItems = items.map(item => {
+        const { parsed } = item;
+        const senderName = parsed.sender ? parsed.sender : lastSender;
+        if (parsed.sender) lastSender = parsed.sender;
+        return { ...parsed, sender: senderName };
+    });
+
+    let lastTime = "";
+    let lastSenderForTime = "";
+    
+    for (let i = processedItems.length - 1; i >= 0; i--) {
+        const item = processedItems[i];
+        if (item.time) {
+            lastTime = item.time;
+            lastSenderForTime = item.sender;
+        } else if (item.sender === lastSenderForTime && lastTime) {
+            item.time = lastTime;
+        }
+    }
+
+    processedItems.forEach(item => {
+        const timeStr = item.time ? `[${item.time}] ` : '';
+        resultText += `${timeStr}${item.sender} : ${item.content}\n`;
+    });
+
+    navigator.clipboard.writeText(resultText).then(() => {
+        alert(`[${dateText}] 완료! ${processedItems.length}개의 메시지 복사됨.`);
+    });
+}
+
+// [수정] 이미지 분할 저장 + 로딩 대기 강화
+async function processImageExport(items, dateText) {
+    const MAX_HEIGHT_PER_IMAGE = 8000; 
+
+    const container = document.createElement('div');
+    container.style.cssText = `
+        position: absolute; top: 0; left: 0; width: 480px; 
+        background-color: #ffffff; z-index: -9999; padding: 20px;
+        display: flex; flex-direction: column;
+    `;
+    document.body.appendChild(container);
+
+    const createHeader = (text) => {
+        const header = document.createElement('div');
+        header.innerText = text;
+        header.style.cssText = 'text-align: center; padding: 15px 0; color: #666; font-weight: bold; margin-bottom: 10px; border-bottom: 1px solid #eee;';
+        return header;
+    };
+
+    let partCount = 1;
+    container.appendChild(createHeader(`${dateText} (Part ${partCount})`));
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const clone = item.element;
+        processCloneForImage(clone); 
+        
+        container.appendChild(clone);
+        
+        // ★ 캐시 버스팅 로직 적용하여 이미지 로드
+        await convertImagesToDataURL(clone); 
+
+        if (container.offsetHeight > MAX_HEIGHT_PER_IMAGE) {
+            container.removeChild(clone);
+            
+            showLoadingOverlay(`이미지 저장 중... (Part ${partCount})`);
+            await captureAndDownload(container, dateText, partCount);
+            
+            container.innerHTML = '';
+            partCount++;
+            
+            container.appendChild(createHeader(`${dateText} (Part ${partCount})`));
+            container.appendChild(clone);
+            
+            await convertImagesToDataURL(clone);
+        }
+    }
+
+    if (container.children.length > 1) {
+        showLoadingOverlay(`이미지 저장 중... (Part ${partCount} - 완료)`);
+        await captureAndDownload(container, dateText, partCount);
+    }
+
+    document.body.removeChild(container);
+}
+
+// 실제 캡처 및 다운로드 함수
+async function captureAndDownload(element, dateText, partNum) {
+    try {
+        const canvas = await html2canvas(element, {
+            useCORS: true, 
+            allowTaint: true, 
+            scale: 2, 
+            backgroundColor: '#ffffff',
+            ignoreElements: (el) => el.style.display === 'none'
+        });
+        
+        const link = document.createElement('a');
+        const fileName = `chat_${dateText.replace(/[^0-9]/g, '')}_part${partNum}.png`;
+        link.download = fileName;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        
+        await wait(1000); 
+    } catch (e) {
+        console.error(e);
+        alert(`이미지 변환 실패 (Part ${partNum}): ` + e.message);
+    }
+}
+
+// ============================================================
+// ★ 복구된 핵심 함수: 캐시 버스팅 (?t=...) 적용
+// ============================================================
+async function convertImagesToDataURL(containerOrElement) {
+    const imgs = containerOrElement.tagName === 'IMG' 
+        ? [containerOrElement] 
+        : Array.from(containerOrElement.querySelectorAll('img'));
+
+    const promises = imgs.map(async (img) => {
+        if (!img.src || img.src.startsWith('data:')) return;
+
+        try {
+            // [복구됨] 아까 잘 동작했던 그 로직!
+            // URL에 현재 시간을 붙여서 브라우저가 캐시된(CORS 없는) 이미지를 쓰지 않고
+            // 새로운 요청(CORS 포함)을 보내도록 유도합니다.
+            const url = new URL(img.src);
+            url.searchParams.set('t', Date.now()); 
+
+            const response = await fetch(url.toString(), { cache: 'no-cache' });
+            if (!response.ok) throw new Error('Network response was not ok');
+
+            const blob = await response.blob();
+
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    img.src = reader.result;
+                    resolve();
+                };
+                // 로드 실패 시에도 멈추지 않도록 resolve 처리
+                reader.onerror = () => {
+                    console.warn('FileReader failed');
+                    resolve();
+                };
+                reader.readAsDataURL(blob);
+            });
+        } catch (err) {
+            // 실패 시 그냥 넘어감 (화면에는 엑박으로 나오겠지만 멈추진 않음)
+            console.warn('이미지 변환 실패 (Cache Busting 시도했으나 실패):', img.src, err);
+            return Promise.resolve();
+        }
+    });
+
+    await Promise.all(promises);
+}
+
+
+// ============================================================
+// 유틸리티
+// ============================================================
+
+function processCloneForImage(element, originalElement) {
+    if (originalElement) copyComputedStyles(originalElement, element);
+    element.style.position = 'relative';
+    element.style.top = 'auto';
+    element.style.left = 'auto';
+    element.style.transform = 'none';
+    element.style.marginBottom = '10px';
+    element.style.width = '100%';
+    
+    if (element.style.marginTop && parseInt(element.style.marginTop, 10) > 50) {
+        element.style.marginTop = '10px';
+    }
+    // 3. [말풍선 본체] 찾아서 강제 성형 (Padding 주입)
+    // 텍스트 에디터 영역(role="textbox")을 감싸고 있는 부모 div가 보통 '말풍선 색상 박스'입니다.
+    const textBox = element.querySelector('div[role="textbox"]');
+    
+    if (textBox) {
+        // textBox의 부모 요소(= 색깔 있는 말풍선) 선택
+        const bubbleBody = textBox.parentElement; 
+        
+        if (bubbleBody) {
+            // ★ 사용자 요청: 강제로 패딩 주입 (상하좌우 넉넉하게)
+            // !important를 써서 기존 스타일을 무시하고 적용합니다.
+            bubbleBody.style.cssText += `
+                padding-bottom: 16px !important; /* 하단 패딩 좀 더 줌 */
+                display: block !important; /* flex로 인해 찌그러짐 방지 */
+            `;
+            
+            // 텍스트 박스 자체의 불필요한 마진 제거
+            textBox.style.margin = '0 !important';
+            textBox.style.padding = '0 !important';
+        }
+    }
+
+    // 4. [정렬 보정] "나"의 메시지 오른쪽 정렬 풀림 방지
+    // 원본에 flex-row-reverse(나) 클래스가 있다면 flex 설정을 강제합니다.
+    if (element.querySelector('.flex_row-reverse')) {
+        const flexContainer = element.querySelector('.d_flex.items_flex-end');
+        if (flexContainer) {
+            flexContainer.style.justifyContent = 'flex-end'; // 오른쪽 정렬 강제
+            flexContainer.style.width = '100%';
+        }
+    }
+}
+
+function copyComputedStyles(source, target) {
+    const visualStyles = ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'background-color', 'border', 'border-radius', 'box-shadow', 'text-align'];
+    try {
+        const s = window.getComputedStyle(source);
+        visualStyles.forEach(p => target.style.setProperty(p, s.getPropertyValue(p)));
+        for (let i = 0; i < source.children.length && i < target.children.length; i++) {
+            copyComputedStyles(source.children[i], target.children[i]);
+        }
+    } catch (e) {}
+}
+
+function findScrollContainer(el) {
+    let current = el.parentElement;
+    while (current) {
+        const style = window.getComputedStyle(current);
+        if (['auto', 'scroll'].includes(style.overflowY)) return current;
+        current = current.parentElement;
+        if (current === document.body) return window;
+    }
+    return window;
+}
+
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+function extractDateFromText(text) {
+    const match = text.match(/(\d{1,2}\.\d{2}\s*\([월화수목금토일]\))/);
+    return match ? match[1] : text.replace(/[^0-9.\(\)월화수목금토일\s]/g, '').trim();
+}
+
+function showLoadingOverlay(text) {
+    let overlay = document.getElementById('chat-overlay');
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'chat-overlay';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); z-index: 999999;
+            display: flex; justify-content: center; align-items: center;
+            color: #fff; font-size: 20px; white-space: pre-line; text-align: center;
+        `;
+        document.body.appendChild(overlay);
+    }
+    overlay.innerText = text;
+    overlay.style.display = 'flex';
+}
+
+function hideLoadingOverlay() {
+    const overlay = document.getElementById('chat-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+setInterval(injectExportButtons, 1000);

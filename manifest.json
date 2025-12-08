@@ -1,0 +1,17 @@
+{
+    "manifest_version": 3,
+    "name": "채팅 내보내기 도구",
+    "version": "1.0",
+    "host_permissions": [
+        "https://*.amazonaws.com/*",
+        "https://aipt.lms.mildang.kr/*"
+      ],
+    "permissions": ["activeTab", "clipboardWrite"],
+    "content_scripts": [
+      {
+        "matches": ["https://aipt.lms.mildang.kr/chat-monitor/*"], 
+        "js": ["html2canvas.min.js", "content.js"],
+        "css": ["styles.css"]
+      }
+    ]
+  }
