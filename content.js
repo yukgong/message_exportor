@@ -1,4 +1,4 @@
-// content.js
+// content.js - 채팅 내보내기 기능
 
 let isProcessing = false;
 
@@ -11,14 +11,14 @@ function injectExportButtons() {
         const wrapper = divider.querySelector('.MuiDivider-wrapper');
         if (!wrapper || wrapper.querySelector('.chat-export-group')) return;
 
-        const btnGroup = document.createElement('span');
+        const btnGroup = document.createElement('div');
         btnGroup.className = 'chat-export-group';
         btnGroup.style.marginLeft = '10px';
         btnGroup.style.display = 'inline-flex';
         btnGroup.style.gap = '5px';
         btnGroup.style.zIndex = '9999';
 
-        btnGroup.appendChild(createButton('📝 텍스트', () => startScraping(divider, 'text')));
+        btnGroup.appendChild(createButton('💬 텍스트', () => startScraping(divider, 'text')));
         btnGroup.appendChild(createButton('📷 이미지', () => startScraping(divider, 'image')));
 
         wrapper.appendChild(btnGroup);
@@ -29,26 +29,26 @@ function createButton(text, onClick) {
     const btn = document.createElement('button');
     btn.innerText = text;
     btn.className = 'export-btn';
-    btn.onclick = (e) => { 
+    btn.onclick = (e) => {
         e.preventDefault();
-        e.stopPropagation(); 
-        onClick(); 
+        e.stopPropagation();
+        onClick();
     };
     btn.style.cssText = `
         cursor: pointer; border: 1px solid #ddd; background: #fff; 
-        border-radius: 4px; padding: 2px 6px; font-size: 12px;
+        border-radius: 8px; padding: 4px 8px; font-size: 13px;
     `;
     return btn;
 }
 
 // 고유 키 생성 (Top 제외, 내용 기반)
 function generateMessageKey(parsed) {
-    const sender = parsed.sender || "null"; 
+    const sender = parsed.sender || "null";
     const time = parsed.time || "";
     const content = parsed.content || "";
-    const contentPreview = content.substring(0, 50);
+    const contentPreview = content.substring(0, 24);
     const raw = `${time}__${sender}__${contentPreview}`;
-    return btoa(unescape(encodeURIComponent(raw))); 
+    return btoa(unescape(encodeURIComponent(raw)));
 }
 
 
@@ -62,6 +62,9 @@ async function startScraping(startDivider, mode) {
         return;
     }
     isProcessing = true;
+
+    // ★ 클릭한 날짜 구분선에서 상위 채팅방 정보 추출
+    const chatRoomInfo = getChatRoomInfo(startDivider);
 
     const dateSpan = startDivider.querySelector('[aria-label]');
     const targetDateText = dateSpan
@@ -107,41 +110,36 @@ async function startScraping(startDivider, mode) {
 
         for (const row of rows) {
             const rowTop = parseFloat(row.style.top) || 0;
-            
+
             if (rowTop < startRowTop - 1) continue;
 
             const separator = row.querySelector('div[role="separator"]');
             if (separator) {
                 if (Math.abs(rowTop - startRowTop) > 5) {
                     reachedNextSeparator = true;
-                    break; 
+                    break;
                 }
             }
 
             const parsed = parseMessageRow(row);
             if (!parsed) continue;
 
-            // 중복 방지 (20px 기준)
             const baseKey = generateMessageKey(parsed);
-            
+            const clone = row.cloneNode(true);
+            copyComputedStyles(row, clone);
+
             if (collectedData.has(baseKey)) {
-                const existing = collectedData.get(baseKey);
-                const diff = Math.abs(existing.top - rowTop);
-                
-                if (diff < 20) { 
-                    continue; 
-                } else {
-                    const dupKey = `${baseKey}__dup_${rowTop.toFixed(0)}`;
-                    if (!collectedData.has(dupKey)) {
-                        const clone = row.cloneNode(true);
-                        copyComputedStyles(row, clone);
-                        collectedData.set(dupKey, { parsed, element: clone, top: rowTop });
-                    }
+                const items = collectedData.get(baseKey);
+                // 기존 항목들 중 같은 위치(±24px)에 있는 것이 있는지 확인
+                const alreadyExists = items.some(item => Math.abs(item.top - rowTop) < 24);
+
+                if (!alreadyExists) {
+                    // 모든 기존 항목과 50px 이상 떨어져 있음 = 실제로 다른 메시지
+                    items.push({ parsed, element: clone, top: rowTop });
                 }
+                // alreadyExists가 true면 = 같은 메시지의 재렌더링, 스킵
             } else {
-                const clone = row.cloneNode(true);
-                copyComputedStyles(row, clone);
-                collectedData.set(baseKey, { parsed, element: clone, top: rowTop });
+                collectedData.set(baseKey, [{ parsed, element: clone, top: rowTop }]);
             }
         }
 
@@ -150,37 +148,38 @@ async function startScraping(startDivider, mode) {
         const currentScrollTop = scroller.scrollTop;
         if (Math.abs(currentScrollTop - lastScrollTop) < 2) {
             sameScrollCount++;
-            if (sameScrollCount > 5) break; 
+            if (sameScrollCount > 5) break;
         } else {
             sameScrollCount = 0;
         }
         lastScrollTop = currentScrollTop;
 
         scroller.scrollBy(0, 300);
-        await wait(500); 
+        await wait(500);
     }
     // ================= LOOP END =================
 
     let sortedItems = Array.from(collectedData.values())
+        .flat()
         .sort((a, b) => a.top - b.top);
 
     if (sortedItems.length === 0) {
         alert("수집된 메시지가 없습니다.");
     } else if (mode === 'text') {
-        processTextExport(sortedItems, targetDateText);
+        processTextExport(sortedItems, targetDateText, chatRoomInfo);
     } else {
-        await processImageExport(sortedItems, targetDateText);
+        await processImageExport(sortedItems, targetDateText, chatRoomInfo);
     }
 
     hideLoadingOverlay();
     isProcessing = false;
-    
+
     startDivider.scrollIntoView({ block: "center" });
 }
 
 
 // ============================================================
-// 3. 파싱 로직
+// 3. 파싱 로직 (정렬 스타일 기반 감지)
 // ============================================================
 
 function parseMessageRow(node) {
@@ -189,27 +188,53 @@ function parseMessageRow(node) {
         node.querySelector('div[role="button"]');
     if (!hasContent) return null;
 
-    let sender = null; 
+    let sender = null;
 
-    const myMsgContainer = node.querySelector('.flex_row-reverse');
-    
-    if (myMsgContainer) {
+    // 1. [핵심 변경] 클래스 이름 대신, 실제 CSS 스타일(정렬)을 확인하여 '나'인지 판단
+    // flex-row-reverse(나) 혹은 justify-content: flex-end(나) 속성을 가진 자식 요소가 있는지 찾습니다.
+    const isMyMessage = Array.from(node.querySelectorAll('div')).some(div => {
+        const style = window.getComputedStyle(div);
+        return (
+            div.classList.contains('flex_row-reverse') || // 기존 클래스 체크
+            style.flexDirection === 'row-reverse' ||      // 스타일 체크 1
+            style.justifyContent === 'flex-end'           // 스타일 체크 2
+        );
+    });
+
+    if (isMyMessage) {
         sender = "나";
     } else {
-        const otherMsgContainer = node.querySelector('.flex_row');
-        if (otherMsgContainer) {
-            const nameNode = node.querySelector('[class*="MDSText--variant_chat-caption-M"]');
+        // 2. 상대방일 경우 이름 추출
+        // 상대방 메시지 컨테이너(왼쪽 정렬)가 있는지 확인
+        const isOtherMessage = Array.from(node.querySelectorAll('div')).some(div => {
+             const style = window.getComputedStyle(div);
+             return (
+                 div.classList.contains('flex_row') || 
+                 style.flexDirection === 'row' || 
+                 style.justifyContent === 'flex-start'
+             );
+        });
+
+        if (isOtherMessage || !isMyMessage) { // 내가 아니면 기본적으로 상대방으로 간주
+            // 이름이 있는 태그를 찾음 (기존 선택자 + 범용 선택자 추가)
+            const nameNode = node.querySelector('[class*="MDSText--variant_chat-caption-M"]') || 
+                             node.querySelector('[class*="caption"]'); // 혹시 모를 다른 캡션 클래스 대비
+            
             if (nameNode) {
                 sender = nameNode.innerText.trim();
             } else {
+                // 이름이 없으면 '연속된 메시지'로 간주하여 null 반환 
+                // (processTextExport에서 이전 화자 이름으로 채워짐)
                 sender = null; 
             }
         }
     }
 
     let time = "";
+    // 시간 추출 로직 (기존 유지하되 조금 더 안전하게)
     node.querySelectorAll('[class*="MDSText--variant_chat-small-text-R"]').forEach(t => {
         const txt = t.innerText.trim();
+        // 시간 형식 (오전/오후 포함하거나 : 포함) 체크
         if ((txt.includes('오전') || txt.includes('오후')) && txt.includes(':')) {
             time = txt;
         }
@@ -217,6 +242,7 @@ function parseMessageRow(node) {
 
     let contents = [];
 
+    // 이미지 추출
     node.querySelectorAll('img').forEach(img => {
         if (img.classList.contains('MuiAvatar-img') || img.closest('.MuiAvatar-root')) return;
         if (img.closest('.MuiChip-root') || img.closest('[role="button"]')) return;
@@ -229,15 +255,18 @@ function parseMessageRow(node) {
         }
     });
 
+    // 파일 추출
     node.querySelectorAll('div[role="button"]').forEach(fileBtn => {
         if (fileBtn.closest('.MuiChip-root')) return;
-        const fileNameEl = fileBtn.querySelector('[class*="MDSText--variant_subtitle4-B"] span');
+        // 선택자 범위를 조금 넓혀서 찾기
+        const fileNameEl = fileBtn.querySelector('[class*="subtitle"] span, span[class*="subtitle"], span[class*="body"]');
         if (fileNameEl) {
             const fileName = fileNameEl.innerText.trim();
             if (fileName) contents.push(`(파일: ${fileName})`);
         }
     });
 
+    // 텍스트 추출
     const textBox = node.querySelector('div[role="textbox"]');
     if (textBox && textBox.innerText.trim()) {
         contents.push(textBox.innerText.trim());
@@ -248,16 +277,18 @@ function parseMessageRow(node) {
     return { time, sender, content: contents.join('\n') };
 }
 
-
 // ============================================================
 // 4. 내보내기 (이미지 분할 저장 + 캐시 버스팅 적용)
 // ============================================================
 
-function processTextExport(items, dateText) {
-    let resultText = `=== [${dateText}] 대화 내용 ===\n\n`;
+function processTextExport(items, dateText, chatRoomInfo) {
+    const { name, group } = chatRoomInfo || getChatRoomInfo();
+    const roomInfo = name + (group ? ` (${group})` : '');
 
-    let lastSender = "알 수 없음"; 
-    
+    let resultText = `=== [${dateText}] ${roomInfo} 대화 내용 ===\n\n`;
+
+    let lastSender = "알 수 없음";
+
     let processedItems = items.map(item => {
         const { parsed } = item;
         const senderName = parsed.sender ? parsed.sender : lastSender;
@@ -267,7 +298,7 @@ function processTextExport(items, dateText) {
 
     let lastTime = "";
     let lastSenderForTime = "";
-    
+
     for (let i = processedItems.length - 1; i >= 0; i--) {
         const item = processedItems[i];
         if (item.time) {
@@ -284,21 +315,24 @@ function processTextExport(items, dateText) {
     });
 
     navigator.clipboard.writeText(resultText).then(() => {
-        alert(`[${dateText}] 완료! ${processedItems.length}개의 메시지 복사됨.`);
+        alert(`[${dateText}] ${roomInfo} 완료! ${processedItems.length}개의 메시지 복사됨.`);
     });
 }
 
 // [수정] 이미지 분할 저장 + 로딩 대기 강화
-async function processImageExport(items, dateText) {
-    const MAX_HEIGHT_PER_IMAGE = 8000; 
+async function processImageExport(items, dateText, chatRoomInfo) {
+    const MAX_HEIGHT_PER_IMAGE = 2000;
 
     const container = document.createElement('div');
     container.style.cssText = `
-        position: absolute; top: 0; left: 0; width: 480px; 
-        background-color: #ffffff; z-index: -9999; padding: 20px;
+        position: absolute; top: 0; left: 0; width: 360px; 
+        background-color: #ffffff; z-index: -9999; padding: 16px;
         display: flex; flex-direction: column;
     `;
     document.body.appendChild(container);
+
+    // ★ 원본 페이지의 CSS 규칙을 컨테이너에 주입
+    injectStyleSheets(container);
 
     const createHeader = (text) => {
         const header = document.createElement('div');
@@ -313,55 +347,59 @@ async function processImageExport(items, dateText) {
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const clone = item.element;
-        processCloneForImage(clone); 
-        
+        processCloneForImage(clone);
+
         container.appendChild(clone);
-        
+
         // ★ 캐시 버스팅 로직 적용하여 이미지 로드
-        await convertImagesToDataURL(clone); 
+        await convertImagesToDataURL(clone);
 
         if (container.offsetHeight > MAX_HEIGHT_PER_IMAGE) {
             container.removeChild(clone);
-            
+
             showLoadingOverlay(`이미지 저장 중... (Part ${partCount})`);
-            await captureAndDownload(container, dateText, partCount);
-            
+            await captureAndDownload(container, dateText, partCount, chatRoomInfo);
+
             container.innerHTML = '';
             partCount++;
-            
+
             container.appendChild(createHeader(`${dateText} (Part ${partCount})`));
             container.appendChild(clone);
-            
+
             await convertImagesToDataURL(clone);
         }
     }
 
     if (container.children.length > 1) {
         showLoadingOverlay(`이미지 저장 중... (Part ${partCount} - 완료)`);
-        await captureAndDownload(container, dateText, partCount);
+        await captureAndDownload(container, dateText, partCount, chatRoomInfo);
     }
 
     document.body.removeChild(container);
 }
 
 // 실제 캡처 및 다운로드 함수
-async function captureAndDownload(element, dateText, partNum) {
+async function captureAndDownload(element, dateText, partNum, chatRoomInfo) {
     try {
         const canvas = await html2canvas(element, {
-            useCORS: true, 
-            allowTaint: true, 
-            scale: 2, 
+            useCORS: true,
+            allowTaint: true,
+            scale: 2,
             backgroundColor: '#ffffff',
             ignoreElements: (el) => el.style.display === 'none'
         });
+
+        // ★ 채팅방 정보 추가
+        const { name, group } = chatRoomInfo || getChatRoomInfo();
+        const roomInfo = sanitizeFileName(name + (group ? `_${group}` : ''));
         
         const link = document.createElement('a');
-        const fileName = `chat_${dateText.replace(/[^0-9]/g, '')}_part${partNum}.png`;
+        const fileName = `[${roomInfo}]${dateText.replace(/[^0-9]/g, '')}_${partNum}.png`;
         link.download = fileName;
         link.href = canvas.toDataURL('image/png');
         link.click();
-        
-        await wait(1000); 
+
+        await wait(1000);
     } catch (e) {
         console.error(e);
         alert(`이미지 변환 실패 (Part ${partNum}): ` + e.message);
@@ -372,8 +410,8 @@ async function captureAndDownload(element, dateText, partNum) {
 // ★ 복구된 핵심 함수: 캐시 버스팅 (?t=...) 적용
 // ============================================================
 async function convertImagesToDataURL(containerOrElement) {
-    const imgs = containerOrElement.tagName === 'IMG' 
-        ? [containerOrElement] 
+    const imgs = containerOrElement.tagName === 'IMG'
+        ? [containerOrElement]
         : Array.from(containerOrElement.querySelectorAll('img'));
 
     const promises = imgs.map(async (img) => {
@@ -384,7 +422,7 @@ async function convertImagesToDataURL(containerOrElement) {
             // URL에 현재 시간을 붙여서 브라우저가 캐시된(CORS 없는) 이미지를 쓰지 않고
             // 새로운 요청(CORS 포함)을 보내도록 유도합니다.
             const url = new URL(img.src);
-            url.searchParams.set('t', Date.now()); 
+            url.searchParams.set('t', Date.now());
 
             const response = await fetch(url.toString(), { cache: 'no-cache' });
             if (!response.ok) throw new Error('Network response was not ok');
@@ -419,39 +457,78 @@ async function convertImagesToDataURL(containerOrElement) {
 // 유틸리티
 // ============================================================
 
+// ★ 채팅방 정보(이름/그룹명) 추출
+function getChatRoomInfo(fromElement) {
+    // fromElement가 있으면 해당 요소의 상위 chat-container를 찾음
+    const chatContainer = fromElement
+        ? fromElement.closest('.chat-container')
+        : document.querySelector('.chat-container');
+
+    if (!chatContainer) return { name: '', group: '' };
+
+    // 이름 추출 (MDSText--variant_subtitle3-B 내 span)
+    const nameEl = chatContainer.querySelector('.MDSText--variant_subtitle3-B span');
+    const name = nameEl ? nameEl.innerText.trim() : '';
+
+    // 그룹명 추출 (MDSText--variant_chat-small-text-R 내 span)
+    const groupEl = chatContainer.querySelector('.MDSText--variant_chat-small-text-R span');
+    const group = groupEl ? groupEl.innerText.trim() : '';
+
+    return { name, group };
+}
+
+// 파일명용 문자열 정리 (특수문자 제거)
+function sanitizeFileName(str) {
+    return str.replace(/[<>:"/\\|?*]/g, '').replace(/\s+/g, '_').substring(0, 30);
+}
+
 function processCloneForImage(element, originalElement) {
     if (originalElement) copyComputedStyles(originalElement, element);
     element.style.position = 'relative';
     element.style.top = 'auto';
     element.style.left = 'auto';
     element.style.transform = 'none';
-    element.style.marginBottom = '10px';
     element.style.width = '100%';
-    
-    if (element.style.marginTop && parseInt(element.style.marginTop, 10) > 50) {
-        element.style.marginTop = '10px';
-    }
-    // 3. [말풍선 본체] 찾아서 강제 성형 (Padding 주입)
-    // 텍스트 에디터 영역(role="textbox")을 감싸고 있는 부모 div가 보통 '말풍선 색상 박스'입니다.
-    const textBox = element.querySelector('div[role="textbox"]');
-    
-    if (textBox) {
-        // textBox의 부모 요소(= 색깔 있는 말풍선) 선택
-        const bubbleBody = textBox.parentElement; 
-        
-        if (bubbleBody) {
-            // ★ 사용자 요청: 강제로 패딩 주입 (상하좌우 넉넉하게)
-            // !important를 써서 기존 스타일을 무시하고 적용합니다.
-            bubbleBody.style.cssText += `
-                padding-bottom: 16px !important; /* 하단 패딩 좀 더 줌 */
-                display: block !important; /* flex로 인해 찌그러짐 방지 */
-            `;
-            
-            // 텍스트 박스 자체의 불필요한 마진 제거
-            textBox.style.margin = '0 !important';
-            textBox.style.padding = '0 !important';
-        }
-    }
+
+
+    // ★ 글자 요소들 위치 보정
+    element.querySelectorAll('p').forEach(el => {
+        el.style.setProperty('line-height', '1.2', 'important');
+        el.style.setProperty('margin', '0', 'important');
+        el.style.setProperty('padding', '0', 'important');
+        el.style.setProperty('position', 'relative', 'important');
+        el.style.setProperty('top', '-8px', 'important');
+    });
+
+    element.querySelectorAll('span').forEach(el => {
+        el.style.setProperty('line-height', '1.2', 'important');
+        el.style.setProperty('overflow', 'visible', 'important');
+        el.style.setProperty('position', 'relative', 'important');
+        el.style.setProperty('text-overflow', 'clip', 'important');
+        el.style.setProperty('-webkit-line-clamp', 'unset', 'important');
+        el.style.setProperty('top', '-4px', 'important');
+    });
+
+    // ★ file 
+    element.querySelectorAll('div[role="button"]').forEach(el => {
+        el.style.setProperty('height', 'auto', 'important');
+    });
+
+    // ★ Chip 
+    element.querySelectorAll('.MuiChip-root').forEach(el => {
+        el.style.setProperty('height', '24px', 'important');
+    });
+
+    // ★ Chip 내부 span - 다른 스타일 적용
+    element.querySelectorAll('.MuiChip-root span').forEach(el => {
+        el.style.setProperty('position', 'relative', 'important');
+        el.style.setProperty('top', '-8px', 'important');
+        el.style.setProperty('line-height', '1', 'important');
+    });
+
+    element.querySelectorAll('.export-btn').forEach(el => {
+        el.style.setProperty('display', 'none', 'important');
+    });
 
     // 4. [정렬 보정] "나"의 메시지 오른쪽 정렬 풀림 방지
     // 원본에 flex-row-reverse(나) 클래스가 있다면 flex 설정을 강제합니다.
@@ -465,14 +542,37 @@ function processCloneForImage(element, originalElement) {
 }
 
 function copyComputedStyles(source, target) {
-    const visualStyles = ['font-family', 'font-size', 'font-weight', 'line-height', 'letter-spacing', 'color', 'background-color', 'border', 'border-radius', 'box-shadow', 'text-align'];
+    // 레이아웃은 건드리지 않고, 텍스트/색상만 백업용으로 복사
+    const visualStyles = ['font-family', 'color'];
     try {
         const s = window.getComputedStyle(source);
         visualStyles.forEach(p => target.style.setProperty(p, s.getPropertyValue(p)));
         for (let i = 0; i < source.children.length && i < target.children.length; i++) {
             copyComputedStyles(source.children[i], target.children[i]);
         }
-    } catch (e) {}
+    } catch (e) { }
+}
+
+function injectStyleSheets(container) {
+    const styleEl = document.createElement('style');
+    let cssText = '';
+
+    // 페이지의 모든 스타일시트에서 CSS 규칙 수집
+    for (const sheet of document.styleSheets) {
+        try {
+            if (sheet.cssRules) {
+                for (const rule of sheet.cssRules) {
+                    cssText += rule.cssText + '\n';
+                }
+            }
+        } catch (e) {
+            // CORS 제한으로 접근 못하는 외부 스타일시트는 무시
+            console.warn('Cannot access stylesheet:', sheet.href);
+        }
+    }
+
+    styleEl.textContent = cssText;
+    container.prepend(styleEl); // 컨테이너 맨 앞에 삽입
 }
 
 function findScrollContainer(el) {
@@ -514,4 +614,6 @@ function hideLoadingOverlay() {
     if (overlay) overlay.style.display = 'none';
 }
 
+
+// 초기화
 setInterval(injectExportButtons, 1000);

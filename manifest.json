@@ -1,17 +1,45 @@
 {
-    "manifest_version": 3,
-    "name": "채팅 내보내기 도구",
-    "version": "1.0",
-    "host_permissions": [
-        "https://*.amazonaws.com/*",
-        "https://aipt.lms.mildang.kr/*"
+  "manifest_version": 3,
+  "name": "채택트",
+  "version": "1.5",
+  "host_permissions": [
+    "https://*.amazonaws.com/*",
+    "https://lms.mildang.kr/*"
+  ],
+  "permissions": [
+    "clipboardWrite",
+    "storage",
+    "tabs", 
+    "activeTab"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://lms.mildang.kr/chat-monitor/*", "http://localhost/*"
       ],
-    "permissions": ["activeTab", "clipboardWrite"],
-    "content_scripts": [
-      {
-        "matches": ["https://aipt.lms.mildang.kr/chat-monitor/*"], 
-        "js": ["html2canvas.min.js", "content.js"],
-        "css": ["styles.css"]
-      }
-    ]
-  }
+      "js": [
+        "html2canvas.min.js",
+        "sizeControl.js",
+        "utils.js",
+        "content.js",
+        "template.js"
+      ],
+      "css": [
+        "styles.css"
+      ]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon/*.svg"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}
