@@ -18,15 +18,22 @@ function hasJongseong(char) {
 }
 
 /**
- * 이름에서 끝 두글자 추출 (이름이 2글자면 그대로)
+ * 이름에서 호칭용 글자 추출
+ * - 3글자 이상: 끝 두글자 (예: 김밀당 → 밀당)
+ * - 2글자: 끝 한글자 (예: 밀당 → 당)
+ * - 1글자: 그대로 (예: 웅 → 웅)
  * @param {string} name - 전체 이름
- * @returns {string} 끝 두글자
+ * @returns {string} 호칭용 글자
  */
-function getNameLastTwo(name) {
+function getNamePart(name) {
     if (!name) return '';
     const trimmed = name.trim();
-    if (trimmed.length <= 2) return trimmed;
-    return trimmed.slice(-2);
+    if (trimmed.length >= 3) {
+        return trimmed.slice(-2); // 3글자 이상: 끝 두글자
+    } else if (trimmed.length === 2) {
+        return trimmed.slice(-1); // 2글자: 끝 한글자
+    }
+    return trimmed; // 1글자: 그대로
 }
 
 /**
@@ -63,20 +70,20 @@ function replaceTemplateVariables(text, variables) {
 function getTemplateVariables(fromElement) {
     const { name } = getChatRoomInfo(fromElement);
     const fullName = name || '학생';
-    const lastTwo = getNameLastTwo(fullName);
-    const lastChar = lastTwo.slice(-1);
+    const namePart = getNamePart(fullName);
+    const lastChar = namePart.slice(-1);
     
     return {
         name: {
             // {{name.full}} : 이름 전체
             full: fullName,
             part: {
-                // {{name.part.hard}} : 끝 두글자 + " 학생"
-                hard: lastTwo + ' 학생',
-                // {{name.part.sweet}} : 끝 두글자 + 받침에 따라 "아/야"
-                sweet: lastTwo + (hasJongseong(lastChar) ? '아' : '야'),
-                // {{name.part.plain}} : 끝 두글자 + 받침에 따라 "밀당이/은서"
-                plain: lastTwo + (hasJongseong(lastChar) ? '이' : ''),
+                // {{name.part.hard}} : 호칭 + " 학생"
+                hard: namePart + ' 학생',
+                // {{name.part.sweet}} : 호칭 + 받침에 따라 "아/야"
+                sweet: namePart + (hasJongseong(lastChar) ? '아' : '야'),
+                // {{name.part.plain}} : 호칭 + 받침에 따라 "이" 또는 없음
+                plain: namePart + (hasJongseong(lastChar) ? '이' : ''),
             }
         }
     };

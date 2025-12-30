@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "채택트",
-  "version": "1.5",
+  "version": "1.6",
   "host_permissions": [
     "https://*.amazonaws.com/*",
     "https://lms.mildang.kr/*"
