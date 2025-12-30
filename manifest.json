@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "채택트",
-  "version": "1.6",
+  "version": "1.6.1",
   "host_permissions": [
     "https://*.amazonaws.com/*",
     "https://lms.mildang.kr/*"
@@ -10,6 +10,7 @@
     "clipboardWrite",
     "storage",
     "tabs", 
+    "windows", "scripting", 
     "activeTab"
   ],
   "background": {
@@ -18,20 +19,29 @@
   "content_scripts": [
     {
       "matches": [
-        "https://lms.mildang.kr/chat-monitor/*", "http://localhost/*"
+        "https://lms.mildang.kr/chat-monitor/*", "https://lms.mildang.kr/student-info*","http://localhost/*"
       ],
       "js": [
         "html2canvas.min.js",
-        "sizeControl.js",
+        "size_control.js",
         "utils.js",
         "content.js",
-        "template.js"
+        "template.js",
+        "popup_controller.js"
       ],
       "css": [
         "styles.css"
-      ]
+      ],
+      "run_at": "document_idle"
     }
   ],
+  "action": { "default_title": "팝업 포커스/오픈" },
+  "commands": {
+    "ensure-chat-popup": {
+      "suggested_key": { "default": "Alt+Shift+P" },
+      "description": "채팅방 팝업 포커스/오픈"
+    }
+  },
   "web_accessible_resources": [
     {
       "resources": [
