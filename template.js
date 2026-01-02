@@ -868,7 +868,7 @@ async function renderTemplatePanel() {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-            " title="템플릿 가져오기"><img src="${chrome.runtime.getURL('icon/upload.svg')}" alt="" width="16" height="16" /></button>
+            " title="템플릿 업로드"><img src="${chrome.runtime.getURL('icon/upload.svg')}" alt="" width="16" height="16" /></button>
             <button id="template-export-btn" style="
                 background: rgba(0, 0, 0, 0.08);
                 border: none;
@@ -1001,7 +1001,7 @@ async function exportTemplates() {
 }
 
 /**
- * 가져오기 선택 다이얼로그 표시
+ * 업로드 선택 다이얼로그 표시
  */
 function showImportChoiceDialog(existingCount, importCount, onChoice) {
     const existingModal = document.getElementById('import-choice-modal');
@@ -1027,7 +1027,7 @@ function showImportChoiceDialog(existingCount, importCount, onChoice) {
             padding: 24px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         ">
-            <h3 style="margin: 0 0 12px 0; color: #333; font-size: 16px; font-weight: 700;">템플릿 가져오기</h3>
+            <h3 style="margin: 0 0 12px 0; color: #333; font-size: 16px; font-weight: 700;">템플릿 업로드</h3>
             <p style="margin: 0 0 20px 0; color: #666; font-size: 13px; line-height: 1.6;">
                 현재 <strong>${existingCount}개</strong>의 템플릿이 있습니다.<br>
                 가져올 템플릿: <strong>${importCount}개</strong>
@@ -1104,7 +1104,7 @@ function showImportChoiceDialog(existingCount, importCount, onChoice) {
 }
 
 /**
- * 템플릿 가져오기 (JSON 파일 업로드)
+ * 템플릿 업로드 (JSON 파일 업로드)
  */
 function importTemplates() {
     const input = document.createElement('input');
@@ -1166,7 +1166,7 @@ function importTemplates() {
                     await renderTemplatePanel();
                 });
             } else {
-                // 기존 템플릿이 없으면 바로 가져오기
+                // 기존 템플릿이 없으면 바로 업로드
                 const newTemplates = templates.map((t, i) => ({
                     ...t,
                     id: i + 1
@@ -1177,8 +1177,8 @@ function importTemplates() {
             }
 
         } catch (err) {
-            console.error('템플릿 가져오기 오류:', err);
-            alert('템플릿 가져오기 실패: ' + err.message);
+            console.error('템플릿 업로드 오류:', err);
+            alert('템플릿 업로드 실패: ' + err.message);
         }
     };
 

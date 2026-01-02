@@ -35,13 +35,6 @@
       "run_at": "document_idle"
     }
   ],
-  "action": { "default_title": "팝업 포커스/오픈" },
-  "commands": {
-    "ensure-chat-popup": {
-      "suggested_key": { "default": "Alt+Shift+P" },
-      "description": "채팅방 팝업 포커스/오픈"
-    }
-  },
   "web_accessible_resources": [
     {
       "resources": [

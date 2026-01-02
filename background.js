@@ -98,16 +98,16 @@ async function ensurePopupForCurrentChat() {
   await openPopupFromChatTab(tab.id);
 }
 
-// ========== 이벤트 리스너 (단축키/아이콘) ==========
-
-chrome.action.onClicked.addListener(() => ensurePopupForCurrentChat());
-chrome.commands.onCommand.addListener((cmd) => {
-  if (cmd === "ensure-chat-popup") ensurePopupForCurrentChat();
-});
-
 // ========== 메시지 처리 ==========
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Page Down 키 신호가 오면 실행
+  if (request.action === "trigger-chat-popup") {
+    log("PageDown Key Detected! Running ensurePopupForCurrentChat");
+    ensurePopupForCurrentChat();
+    return;
+  }
+
   // 팝업 등록
   if (request?.type === "REGISTER_POPUP" && request.key && sender.tab?.id != null) {
     registerPopup(request.key, sender.tab.id, sender.tab.windowId)

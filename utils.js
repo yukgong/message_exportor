@@ -111,7 +111,7 @@ const DEFAULT_TEMPLATES = [
 ];
 
 /**
- * 저장된 템플릿 목록 가져오기
+ * 저장된 템플릿 목록 업로드
  * @returns {Promise<Array>}
  */
 async function getTemplates() {

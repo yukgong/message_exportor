@@ -196,3 +196,17 @@ window.__OPEN_CHAT_POPUP__ = async () => {
     console.log("[popup_controller] REGISTER_POPUP key =", key, res);
   });
 })();
+
+
+// 팝업 열기 단축키
+window.addEventListener("keydown", function(event) {
+  // 'PageDown' 키인지 확인
+  if (event.key === "PageDown") {
+    
+    // 1. 브라우저의 기본 Page Down 동작(스크롤 내려감)을 막고 싶다면 아래 줄 주석 해제
+    event.preventDefault(); 
+
+    // 2. 백그라운드로 '팝업 열기' 신호 전송
+    chrome.runtime.sendMessage({ action: "trigger-chat-popup" });
+  }
+});
