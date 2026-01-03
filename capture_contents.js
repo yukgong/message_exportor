@@ -2,52 +2,61 @@
 
 let isProcessing = false;
 
-// ============================================================
-// 1. 버튼 주입
-// ============================================================
 function injectExportButtons() {
     const dateDividers = document.querySelectorAll('div[role="separator"]');
     dateDividers.forEach((divider) => {
         const wrapper = divider.querySelector('.MuiDivider-wrapper');
         if (!wrapper || wrapper.querySelector('.chat-export-group')) return;
 
+        // ✅ wrapper에서 텍스트/버튼을 같은 기준으로 수직 중앙정렬
+        wrapper.style.display = 'inline-flex';
+        wrapper.style.alignItems = 'center';
+        wrapper.style.gap = '10px';
+        
         const btnGroup = document.createElement('div');
         btnGroup.className = 'chat-export-group';
-        btnGroup.style.marginLeft = '10px';
+
         btnGroup.style.display = 'inline-flex';
         btnGroup.style.gap = '5px';
         btnGroup.style.zIndex = '9999';
 
-        btnGroup.appendChild(createButton('💬 텍스트', () => startScraping(divider, 'text')));
-        btnGroup.appendChild(createButton('📷 이미지', () => startScraping(divider, 'image')));
+        btnGroup.appendChild(createIconButton('icon/clipboard.svg', '텍스트 복사', () => startScraping(divider, 'text')));
+        btnGroup.appendChild(createIconButton('icon/capture.svg', '이미지 캡처', () => startScraping(divider, 'image')));
+        btnGroup.appendChild(createIconButton('icon/text_file_download.svg', '텍스트 파일 저장', () => startTextFileScraping(divider)));
 
         wrapper.appendChild(btnGroup);
     });
 }
 
-function createButton(text, onClick) {
+function createIconButton(iconPath, title, onClick) {
     const btn = document.createElement('button');
-    btn.innerText = text;
     btn.className = 'export-btn';
+    btn.title = title;
     btn.onclick = (e) => {
         e.preventDefault();
         e.stopPropagation();
         onClick();
     };
     btn.style.cssText = `
-        cursor: pointer; border: 1px solid #ddd; background: #fff; 
-        border-radius: 8px; padding: 4px 8px; font-size: 13px;
+        cursor: pointer;
+        border: 1px solid #ddd;
+        background: #fff url(${chrome.runtime.getURL(iconPath)}) no-repeat center;
+        background-size: 18px 18px;
+        border-radius: 6px;
+        width: 28px;
+        height: 28px;
     `;
     return btn;
 }
+
 
 // 고유 키 생성 (Top 제외, 내용 기반)
 function generateMessageKey(parsed) {
     const sender = parsed.sender || "null";
     const time = parsed.time || "";
     const content = parsed.content || "";
-    const contentPreview = content.substring(0, 24);
-    const raw = `${time}__${sender}__${contentPreview}`;
+    // ★ [수정] 24자 → 전체 content 사용하여 더 정확한 중복 감지
+    const raw = `${time}__${sender}__${content}`;
     return btoa(unescape(encodeURIComponent(raw)));
 }
 
@@ -130,11 +139,11 @@ async function startScraping(startDivider, mode) {
 
             if (collectedData.has(baseKey)) {
                 const items = collectedData.get(baseKey);
-                // 기존 항목들 중 같은 위치(±24px)에 있는 것이 있는지 확인
-                const alreadyExists = items.some(item => Math.abs(item.top - rowTop) < 24);
+                // ★ [수정] 가상 스크롤 위치 변동 대응: 24px → 100px로 확대
+                const alreadyExists = items.some(item => Math.abs(item.top - rowTop) < 100);
 
                 if (!alreadyExists) {
-                    // 모든 기존 항목과 50px 이상 떨어져 있음 = 실제로 다른 메시지
+                    // 모든 기존 항목과 100px 이상 떨어져 있음 = 실제로 다른 메시지
                     items.push({ parsed, element: clone, top: rowTop });
                 }
                 // alreadyExists가 true면 = 같은 메시지의 재렌더링, 스킵
@@ -386,7 +395,10 @@ async function captureAndDownload(element, dateText, partNum, chatRoomInfo) {
             allowTaint: true,
             scale: 2,
             backgroundColor: '#ffffff',
-            ignoreElements: (el) => el.style.display === 'none'
+            ignoreElements: (el) => el.style.display === 'none',
+            // ★ [수정] CSP 정책 충돌 방지를 위한 옵션 추가
+            foreignObjectRendering: false,
+            logging: false
         });
 
         // ★ 채팅방 정보 추가

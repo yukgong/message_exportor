@@ -315,8 +315,7 @@ async function toggleMiniTemplatePanel(e) {
     const existingPanel = document.getElementById('mini-template-panel');
 
     if (existingPanel) {
-        existingPanel.style.animation = 'miniPanelOut 0.15s ease-in forwards';
-        setTimeout(() => existingPanel.remove(), 150);
+        existingPanel.remove();
         activeChatContainerForMiniPanel = null;
         return;
     }
@@ -373,8 +372,8 @@ async function renderMiniTemplatePanel(anchorRect) {
                     0 9px 28px 8px rgba(0, 0, 0, 0.05);
         z-index: 99999;
         overflow: hidden;
-        animation: miniPanelIn 0.15s ease-out;
     `;
+    
 
     // 위치 계산 (버튼 위쪽으로 열림, 화면 밖으로 나가지 않도록)
     if (anchorRect) {
@@ -411,22 +410,6 @@ async function renderMiniTemplatePanel(anchorRect) {
         panel.style.right = `${rightPos}px`;
     }
 
-    // 애니메이션 스타일
-    if (!document.getElementById('mini-panel-animation-style')) {
-        const style = document.createElement('style');
-        style.id = 'mini-panel-animation-style';
-        style.textContent = `
-            @keyframes miniPanelIn {
-                from { transform: translateY(8px) scale(0.95); opacity: 0; }
-                to { transform: translateY(0) scale(1); opacity: 1; }
-            }
-            @keyframes miniPanelOut {
-                from { transform: translateY(0) scale(1); opacity: 1; }
-                to { transform: translateY(8px) scale(0.95); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-    }
 
     // 템플릿 목록
     const listContainer = document.createElement('div');
@@ -461,9 +444,7 @@ async function renderMiniTemplatePanel(anchorRect) {
     panel.dataset.shortcutHandlerActive = 'true';
 
     // 패널 외부 클릭 시 닫기
-    setTimeout(() => {
-        document.addEventListener('click', handleMiniPanelOutsideClick);
-    }, 50);
+    document.addEventListener('click', handleMiniPanelOutsideClick);
 }
 
 /**
@@ -479,8 +460,7 @@ function createMiniPanelShortcutHandler(templates) {
 
         // ESC로 패널 닫기
         if (e.key === 'Escape') {
-            panel.style.animation = 'miniPanelOut 0.15s ease-in forwards';
-            setTimeout(() => panel.remove(), 150);
+            panel.remove();
             document.removeEventListener('keydown', handler);
             document.removeEventListener('click', handleMiniPanelOutsideClick);
             return;
@@ -509,8 +489,7 @@ function createMiniPanelShortcutHandler(templates) {
             }
 
             // 패널 닫기
-            panel.style.animation = 'miniPanelOut 0.15s ease-in forwards';
-            setTimeout(() => panel.remove(), 150);
+            panel.remove();
             document.removeEventListener('keydown', handler);
             document.removeEventListener('click', handleMiniPanelOutsideClick);
 
@@ -539,7 +518,7 @@ function createMiniPanelShortcutHandler(templates) {
                 }
 
                 activeChatContainerForMiniPanel = null;
-            }, 100);
+            }, 50);
 
             showToast(`[${key}] 복사 완료! Ctrl+V로 붙여넣기 하세요.`, 'success');
         }
@@ -556,8 +535,7 @@ function handleMiniPanelOutsideClick(e) {
     const clickedBtn = e.target.closest('.input-template-btn');
 
     if (panel && !panel.contains(e.target) && !clickedBtn) {
-        panel.style.animation = 'miniPanelOut 0.15s ease-in forwards';
-        setTimeout(() => panel.remove(), 150);
+        panel.remove();
         document.removeEventListener('click', handleMiniPanelOutsideClick);
     }
 }
@@ -680,8 +658,7 @@ function createMiniTemplateItem(template) {
         // 1. 패널 닫기
         const panel = document.getElementById('mini-template-panel');
         if (panel) {
-            panel.style.animation = 'miniPanelOut 0.15s ease-in forwards';
-            setTimeout(() => panel.remove(), 150);
+            panel.remove();
             document.removeEventListener('click', handleMiniPanelOutsideClick);
         }
 
@@ -714,7 +691,7 @@ function createMiniTemplateItem(template) {
 
             // 컨테이너 초기화
             activeChatContainerForMiniPanel = null;
-        }, 100);
+        }, 50);
 
         // 3. 토스트
         showToast('복사 완료! Ctrl+V로 붙여넣기 하세요.', 'success');
@@ -744,8 +721,7 @@ async function toggleTemplatePanel(e, fromInput = false) {
     const existingPanel = document.getElementById('template-panel');
 
     if (existingPanel) {
-        existingPanel.style.animation = 'slideOutPanel 0.3s ease-in forwards';
-        setTimeout(() => existingPanel.remove(), 300);
+        existingPanel.remove()
         templatePanelOpen = false;
         savedPanelStyle = null; // 위치 초기화
         document.removeEventListener('click', handlePanelOutsideClick);
@@ -811,7 +787,6 @@ async function renderTemplatePanel() {
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
         z-index: 99999;
         overflow: hidden;
-        ${isRerender ? '' : 'animation: slideInPanel 0.1s ease-out;'}
     `;
 
     // 저장된 위치 적용
@@ -826,22 +801,6 @@ async function renderTemplatePanel() {
         panel.style.left = '200px';
     }
 
-    // 애니메이션 스타일
-    if (!document.getElementById('panel-animation-style')) {
-        const style = document.createElement('style');
-        style.id = 'panel-animation-style';
-        style.textContent = `
-            @keyframes slideInPanel {
-                from { transform: translateY(10px); opacity: 0; }
-                to { transform: translateY(0); opacity: 1; }
-            }
-            @keyframes slideOutPanel {
-                from { transform: translateY(0); opacity: 1; }
-                to { transform: translateY(10px); opacity: 0; }
-            }
-        `;
-        document.head.appendChild(style);
-    }
 
     // 헤더
     const header = document.createElement('div');
@@ -951,9 +910,7 @@ async function renderTemplatePanel() {
     };
 
     // 패널 외부 클릭 시 닫기
-    setTimeout(() => {
-        document.addEventListener('click', handlePanelOutsideClick);
-    }, 100);
+    document.addEventListener('click', handlePanelOutsideClick, true);
 }
 
 function handlePanelOutsideClick(e) {
@@ -969,7 +926,7 @@ function handlePanelOutsideClick(e) {
         e.target !== templateBtn && e.target !== inputBtn &&
         !templateBtn?.contains(e.target) && !inputBtn?.contains(e.target)) {
         toggleTemplatePanel();
-        document.removeEventListener('click', handlePanelOutsideClick);
+        document.removeEventListener('click', handlePanelOutsideClick, true);
     }
 }
 

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "채택트",
-  "version": "1.6.1",
+  "version": "1.7",
   "host_permissions": [
     "https://*.amazonaws.com/*",
     "https://lms.mildang.kr/*"
@@ -25,7 +25,8 @@
         "html2canvas.min.js",
         "size_control.js",
         "utils.js",
-        "content.js",
+        "capture_contents.js",
+        "text_file_export.js",
         "template.js",
         "popup_controller.js"
       ],
